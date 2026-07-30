@@ -1,0 +1,407 @@
+#include <iostream>
+#include <filesys#include <string>
+#include <vector>
+#include <sstream>
+#include <iomanip>
+#include <algorithm>
+#include <map>
+namespace fs = std::filesystem;
+
+// 格式化文件大小（自动选择单位）
+std::string format_size(std::uintmax_t size) {
+    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int i = 0;
+    double dsize = static_cast<double>(size);
+    while (dsize >= 1024 && i < 4) {
+        dsize /= 1024.0;
+        i++;
+    }
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << dsize << " " << units[i];
+    return oss.str();
+}
+
+// 获取文件类型标识
+char get_type(const fs::directory_entry& entry) {
+    if (fs::is_directory(entry)) return 'D';
+    else if (fs::is_symlink(entry)) return 'L';
+    else if (fs::is_regular_file(entry)) return 'F';
+    else return '?';
+}
+
+// 列出目录内容
+void list_directory(const std::string& path_str) {
+    fs::path path = path_str.empty() ? fs::current_path() : fs::absolute(fs::path(path_str));
+    if (!fs::exists(path) || !fs::is_directory(path)) {
+        std::cerr << "错误: 路径无效或不是目录\n";
+        return;
+    }
+    std::cout << "\n目录: " << path.string() << "\n";
+    std::cout << std::left << std::setw(4) << "类型" 
+              << std::setw(20) << "文件名" 
+              << std::setw(12) << "大小" 
+              << "修改时间\n";
+    std::cout << "-----------------------------------------------------------\n";
+    for (const auto& entry : fs::directory_iterator(path)) {
+        try {
+            auto ftime = fs::last_write_time(entry);
+            // 简化为时间字符串 (C++20 可用 std::chrono::zoned_time，这里用简单的ctime替代)
+            std::time_t t = std::chrono::system_clock::to_time_t(
+                std::chrono::floor<std::chrono::seconds>(
+                    std::chrono::file_clock::to_sys(ftime)
+                )
+            );
+            std::string timestr = std::ctime(&t);
+            timestr.pop_back(); // 去掉换行
+            std::cout << std::left << std::setw(4) << get_type(entry)
+                      << std::setw(20) << entry.path().filename().string()
+                      << std::setw(12) << (fs::is_regular_file(entry) ? format_size(fs::file_size(entry)) : "<DIR>")
+                      << timestr << "\n";
+        } catch(const std::exception& e) {
+            // 忽略读取错误（如权限问题）
+            continue;
+        }
+    }
+}
+
+// 切换目录
+void change_directory(const std::string& path_str) {
+    try {
+        fs::path newpath = path_str.empty() ? fs::current_path() : fs::absolute(fs::path(path_str));
+        if (fs::exists(newpath) && fs::is_directory(newpath)) {
+            fs::current_path(newpath);
+            std::cout << "当前目录: " << fs::current_path().string() << "\n";
+        } else {
+            std::cerr << "错误: 目录不存在\n";
+        }
+    } catch(...) {
+        std::cerr << "错误: 无法切换目录\n";
+    }
+}
+
+// 文件/目录信息
+void show_info(const std::string& path_str) {
+    fs::path p = fs::absolute(fs::path(path_str));
+    if (!fs::exists(p)) {
+        std::cerr << "错误: 文件不存在\n";
+        return;
+    }
+    std::cout << "\n文件信息: " << p.string() << "\n";
+    std::cout << "  类型: " << (fs::is_directory(p) ? "目录" : (fs::is_symlink(p) ? "符号链接" : "普通文件")) << "\n";
+    if (fs::is_regular_file(p)) {
+        std::cout << "  大小: " << format_size(fs::file_size(p)) << "\n";
+    }
+    auto ftime = fs::last_write_time(p);
+    std::time_t t = std::chrono::system_clock::to_time_t(
+        std::chrono::floor<std::chrono::seconds>(
+            std::chrono::file_clock::to_sys(ftime)
+        )
+    );
+    std::cout << "  修改时间: " << std::ctime(&t);
+}
+
+// 扩展名统计
+void ext_stat() {
+    std::map<std::string, std::pair<int, std::uintmax_t>> stats; // ext -> (count, total_size)
+    for (const auto& entry : fs::directory_iterator(fs::current_path())) {
+        if (fs::is_regular_file(entry)) {
+            std::string ext = entry.path().extension().string();
+            if (ext.empty()) ext = "(无扩展名)";
+            stats[ext].first++;
+            stats[ext].second += fs::file_size(entry);
+        }
+    }
+    if (stats.empty()) {
+        std::cout << "当前目录下没有文件。\n";
+        return;
+    }
+    std::cout << "\n扩展名统计:\n";
+    std::cout << std::left << std::setw(20) << "扩展名" 
+              << std::setw(10) << "数量" 
+              << "总大小\n";
+    for (const auto& [ext, data] : stats) {
+        std::cout << std::left << std::setw(20) << ext
+                  << std::setw(10) << data.first
+                  << format_size(data.second) << "\n";
+    }
+}
+
+// 复制文件或目录
+void copy_item(const std::string& src, c#include <iostream>
+#include <filesystem>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <iomanip>
+#include <algorithm>
+#include <map>
+#include <sys/stat.h>
+#include <ctime>
+namespace fs = std::filesystem;
+
+// 格式化文件大小
+std::string format_size(std::uintmax_t size) {
+    const char* units[] = {"B", "KB", "MB", "GB", "TB"};
+    int i = 0;
+    double dsize = static_cast<double>(size);
+    while (dsize >= 1024 && i < 4) {
+        dsize /= 1024.0;
+        i++;
+    }
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << dsize << " " << units[i];
+    return oss.str();
+}
+
+// 获取文件类型标识
+char get_type(const fs::directory_entry& entry) {
+    if (fs::is_directory(entry)) return 'D';
+    else if (fs::is_symlink(entry)) return 'L';
+    else if (fs::is_regular_file(entry)) return 'F';
+    else return '?';
+}
+
+// 获取文件修改时间字符串（使用 stat）
+std::string get_mtime_str(const fs::path& p) {
+    struct stat st;
+    if (stat(p.c_str(), &st) == 0) {
+        std::time_t t = st.st_mtime;
+        std::string s = std::ctime(&t);
+        if (!s.empty()) s.pop_back();  // 去掉末尾换行
+        return s;
+    }
+    return "未知";
+}
+
+// 列出目录
+void list_directory(const std::string& path_str) {
+    fs::path path = path_str.empty() ? fs::current_path() : fs::absolute(fs::path(path_str));
+    if (!fs::exists(path) || !fs::is_directory(path)) {
+        std::cerr << "错误: 路径无效或不是目录\n";
+        return;
+    }
+    std::cout << "\n目录: " << path.string() << "\n";
+    std::cout << std::left << std::setw(4) << "类型" 
+              << std::setw(20) << "文件名" 
+              << std::setw(12) << "大小" 
+              << "修改时间\n";
+    std::cout << "-----------------------------------------------------------\n";
+    for (const auto& entry : fs::directory_iterator(path)) {
+        try {
+            std::string fname = entry.path().filename().string();
+            std::string mtime = get_mtime_str(entry.path());
+            std::string size_str = (fs::is_regular_file(entry) ? format_size(fs::file_size(entry)) : "<DIR>");
+            std::cout << std::left << std::setw(4) << get_type(entry)
+                      << std::setw(20) << fname
+                      << std::setw(12) << size_str
+                      << mtime << "\n";
+        } catch(...) {
+            continue;
+        }
+    }
+}
+
+// 切换目录
+void change_directory(const std::string& path_str) {
+    try {
+        fs::path newpath = path_str.empty() ? fs::current_path() : fs::absolute(fs::path(path_str));
+        if (fs::exists(newpath) && fs::is_directory(newpath)) {
+            fs::current_path(newpath);
+            std::cout << "当前目录: " << fs::current_path().string() << "\n";
+        } else {
+            std::cerr << "错误: 目录不存在\n";
+        }
+    } catch(...) {
+        std::cerr << "错误: 无法切换目录\n";
+    }
+}
+
+// 显示文件信息
+void show_info(const std::string& path_str) {
+    fs::path p = fs::absolute(fs::path(path_str));
+    if (!fs::exists(p)) {
+        std::cerr << "错误: 文件不存在\n";
+        return;
+    }
+    struct stat st;
+    stat(p.c_str(), &st);
+    std::cout << "\n文件信息: " << p.string() << "\n";
+    std::cout << "  类型: " << (fs::is_directory(p) ? "目录" : (fs::is_symlink(p) ? "符号链接" : "普通文件")) << "\n";
+    if (fs::is_regular_file(p)) {
+        std::cout << "  大小: " << format_size(fs::file_size(p)) << "\n";
+    }
+    std::cout << "  修改时间: " << std::ctime(&st.st_mtime);
+}
+
+// 扩展名统计
+void ext_stat() {
+    std::map<std::string, std::pair<int, std::uintmax_t>> stats;
+    for (const auto& entry : fs::directory_iterator(fs::current_path())) {
+        if (fs::is_regular_file(entry)) {
+            std::string ext = entry.path().extension().string();
+            if (ext.empty()) ext = "(无扩展名)";
+            stats[ext].first++;
+            stats[ext].second += fs::file_size(entry);
+        }
+    }
+    if (stats.empty()) {
+        std::cout << "当前目录下没有文件。\n";
+        return;
+    }
+    std::cout << "\n扩展名统计:\n";
+    std::cout << std::left << std::setw(20) << "扩展名" 
+              << std::setw(10) << "数量" 
+              << "总大小\n";
+    for (const auto& [ext, data] : stats) {
+        std::cout << std::left << std::setw(20) << ext
+                  << std::setw(10) << data.first
+                  << format_size(data.second) << "\n";
+    }
+}
+
+// 复制
+void copy_item(const std::string& src, const std::string& dst) {
+    try {
+        fs::path srcp = fs::absolute(fs::path(src));
+        fs::path dstp = fs::absolute(fs::path(dst));
+        if (!fs::exists(srcp)) {
+            std::cerr << "错误: 源不存在\n";
+            return;
+        }
+        if (fs::is_directory(srcp)) {
+            fs::copy(srcp, dstp, fs::copy_options::recursive);
+        } else {
+            fs::copy(srcp, dstp);
+        }
+        std::cout << "复制成功: " << src << " -> " << dst << "\n";
+    } catch(const std::exception& e) {
+        std::cerr << "复制失败: " << e.what() << "\n";
+    }
+}
+
+// 移动
+void move_item(const std::string& src, const std::string& dst) {
+    try {
+        fs::rename(fs::absolute(fs::path(src)), fs::absolute(fs::path(dst)));
+        std::cout << "移动成功: " << src << " -> " << dst << "\n";
+    } catch(const std::exception& e) {
+        std::cerr << "移动失败: " << e.what() << "\n";
+    }
+}
+
+// 删除文件或空目录
+void remove_item(const std::string& path_str) {
+    try {
+        fs::path p = fs::absolute(fs::path(path_str));
+        if (!fs::exists(p)) {
+            std::cerr << "错误: 文件不存在\n";
+            return;
+        }
+        if (fs::is_directory(p) && !fs::is_empty(p)) {
+            std::cerr << "错误: 目录非空，拒绝删除\n";
+            return;
+        }
+        fs::remove(p);
+        std::cout << "删除成功: " << p.string() << "\n";
+    } catch(const std::exception& e) {
+        std::cerr << "删除失败: " << e.what() << "\n";
+    }
+}
+
+void print_help() {
+    std::cout << "\n命令列表:\n"
+              << "  ls [path]           列出目录内容\n"
+              << "  cd [path]           切换目录\n"
+              << "  info <file>         显示文件信息\n"
+              << "  extstat             统计当前目录扩展名\n"
+              << "  copy <src> <dst>    复制文件或目录\n"
+              << "  move <src> <dst>    移动/重命名\n"
+              << "  remove <file>       删除文件或空目录\n"
+              << "  quit / exit         退出\n"
+              << "  help                显示此帮助\n";
+}
+
+int main() {
+    std::cout << "=== 简易文件管理器 (C++17) ===\n";
+    std::cout << "当前目录: " << fs::current_path().string() << "\n";
+    std::string line;
+    while (true) {
+        std::cout << "\n> ";
+        std::getline(std::cin, line);
+        if (line.empty()) continue;
+        std::istringstream iss(line);
+        std::string cmd;
+        iss >> cmd;
+        if (cmd == "quit" || cmd == "exit") break;
+        else if (cmd == "help") { print_help(); continue; }
+        else if (cmd == "ls") {
+            std::string path;
+            iss >> path;
+            list_directory(path);
+        } else if (cmd == "cd") {
+            std::string path;
+            iss >> path;
+            change_directory(path);
+        } else if (cmd == "info") {
+            std::string path;
+            iss >> path;
+            if (path.empty()) std::cerr << "请指定文件路径\n";
+            else show_info(path);
+        } else if (cmd == "extstat") {
+            ext_stat();
+        } else if (cmd == "copy") {
+            std::string src, dst;
+            iss >> src >> dst;
+            if (src.empty() || dst.empty()) std::cerr << "用法: copy <源> <目标>\n";
+            else copy_item(src, dst);
+        } else if (cmd == "move") {
+            std::string src, dst;
+            iss >> src >> dst;
+            if (src.empty() || dst.empty()) std::cerr << "用法: move <源> <目标>\n";
+            else move_item(src, dst);
+        } else if (cmd == "remove") {
+            std::string path;
+            iss >> path;
+            if (path.empty()) std::cerr << "用法: remove <文件或空目录>\n";
+            else remove_item(path);
+        } else {
+            std::cerr << "未知命令: " << cmd << " (输入 help    std::cout << "再见!\n";
+    return 0;
+} std::string&    try {
+     fs::path srcp = fs::absolute(fs::path(src));
+       fs::path dstp = fs::absolute(fs::path(dst))
+       if (!fs::exists(srcp)) {
+           std::cerr << "错误: 源不存在\n";
+            return
+        }
+        if (fs::is_directory(srcp)) {
+           fs::coy(srcp, dstp, fs::copy_options::recursive);
+        } else {
+            fs::opy(srcp, dstp);
+       
+       std::cout << "复制成功: " << src << " -> " << dst << "\n";
+    } cat
+
+:path(src)), fs::absolute(fs:ath(dst)));
+      std::cout << "移动成功: " << src << " -> " << dst << "\n";  } catch(const std::exception& e) {
+    std::cerr << "移动失败: " << e.what() <<   
+/删除文件或空目录（不递归删除非空目录）
+voidremove_item(const std::string& path_str) {
+    try {
+       fs::path p = fs::absolute(fs::path(path_str));
+        if (!fs::exists(p)) {
+            std::cerr << "错误: 文件不存在\n";
+            if (fs::is_directory(p) && !fs::is_empty(p)) {
+        std::cerr << "错误: 目录非空，拒绝删除（使用 rm -rf 需自行实现）\n";
+          return;
+        
+        fs::remove(p);        std::cout << "删除成功: " << p.string() << "\n";
+    } catch(const std::exception& e) {
+       std::cerr << "删除失败: " << e.what() << "\n";
+    }
+}
+void print_help() {
+    std::cout << "\n令列表:\n"
+              << "  ls [path]           列出目录内容\n"
+              << "  cd [path]           切换目录\n"
+              << "  inf
