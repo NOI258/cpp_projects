@@ -3,3 +3,5 @@ fileman
 sysinfo
 *.save
 *.o
+httpserver
+server.log
